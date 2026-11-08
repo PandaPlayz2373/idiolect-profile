@@ -13,6 +13,10 @@ The rule that matters most: **every claim in the profile must come from their re
 the scripts; phrases, habits and examples come from reading their samples. Never fill gaps with what people
 "usually" sound like. A thin, true profile beats a full, invented one.
 
+Facts follow the same rule. Who they are, what they work on, people, numbers and stories in the profile and in
+your test pieces must appear in the corpus or samples. Never take them from CLAUDE.md, memory files or anything
+else you happen to know from this session; the profile has to stand on their words alone.
+
 Scripts are in `scripts/` next to this file. Use `python3` (on Windows: `python`). They are stdlib-only and
 never send anything anywhere. Run them with the full path to this skill's folder.
 
@@ -26,8 +30,11 @@ phone numbers, links and file paths are masked automatically; the private workin
 Work out without asking:
 - **Name**: from how they sign things or refer to themselves in their history, `git config user.name`, or the
   OS user. `slug` = lowercase first name (`sound-like-jordan`). If two people could be meant, ask.
-- **Refresh vs new**: if `~/.claude/skills/sound-like-<slug>/` exists, this is a refresh. Read the current
-  SKILL.md first and keep its "Corrections from <Name>" section word for word.
+- **Refresh vs new**: if `sound-like-<slug>/` already exists in the skills folder you'll install to
+  (`~/.claude/skills/` unless they or the task named another), this is a refresh. Read the current SKILL.md
+  first and keep its "Corrections from <Name>" section word for word.
+- **Work folder** `W`: `~/.claude/idiolect/<slug>/`. If it already holds a run that isn't yours (a different
+  name in report.md, or a draft you didn't write), use a fresh folder rather than overwrite it.
 
 Then ask ONE question (AskUserQuestion if you have it, multi-select) about extra sources. More registers come
 from more kinds of writing, so offer what they likely have:
@@ -66,12 +73,16 @@ going either way.
    say to check they were understood, how they correct themselves.
 3. `$W/stats.json` only if you need a number the report doesn't show.
 
-While reading, throw out anything that isn't them: pasted posts, quoted emails, text a script wrote. If a
-sample talks about them in the third person, it's a script.
+While reading, note anything that isn't them: pasted posts, quoted Claude replies, text a script wrote. If a
+sample talks about them in the third person, it's a script. Each sample starts with its id
+(`[3f9a01c2b7de · 2026-10-04 · ...]`). Put those ids, one per line, in `$W/exclude.txt` and re-run analyze with
+`--exclude $W/exclude.txt` so the numbers aren't skewed by them. One pass is enough; don't chase every stray.
 
-Registers come from the scripts as `typed-to-ai`, `spoken-dictated?` (long, clean, capitalized messages that
-read like voice input; confirm by reading them, merge back if they're just careful typing), `typed-casual`,
-`email`, `writing`, `public-post`, `spoken`. Keep a register only if it has roughly 40+ samples or 1,500+
+Registers come from the scripts as `typed-to-ai`, `dictated` (clean, capitalized, talk-shaped messages that
+read like voice input; confirm by reading them, and if they're just careful typing re-run analyze with
+`--no-dictation-split`), `typed-casual`, `email`, `writing`, `public-post`, `spoken`. These keys are what
+`lint.py --register` takes; keep them as they are and give each a human label. For `dictated`, the
+capitalization and punctuation came from the transcriber: describe their words and rhythm, not their commas. Keep a register only if it has roughly 40+ samples or 1,500+
 words; mention thinner ones as a short note. Name each register the way they'd recognize it ("Texting
 friends", "Prompting AI", "Work email", "Essays for class", "Talking on camera").
 
@@ -87,7 +98,7 @@ Write `$W/draft/SKILL.md` and `$W/draft/examples.md` following
 [reference/profile-template.md](reference/profile-template.md) exactly. Then edit `$W/profile.json` and save it
 as `$W/draft/profile.json`:
 - give each register a `"label"` (the human name you chose),
-- delete registers you dropped (and merge `spoken-dictated?` back if you decided it isn't real),
+- delete registers you dropped,
 - add `"never_say": [...]` for phrases you saw them push back on or that are obviously not them,
 - remove any `banned_phrases` entry they actually use (the report lists those they do).
 
@@ -108,8 +119,10 @@ they asked you not to touch it.
 
 ## 5. Prove it, then fix it
 
-Load the new skill and write three short pieces in the registers you have most data for, about real topics
-from their samples (something they're working on, a person they mention, a thing they'd post). Run each
+Load the new skill and write three short pieces in the registers you have most data for (with fewer than
+three registers, repeat the biggest one in a different situation), about real topics from their samples
+(something they're working on, a person they mention, a thing they'd post). Any fact in a piece must come
+from their samples; if you need one you don't have, use a [bracket]. Run each
 through the linter and fix what it flags:
 
 ```

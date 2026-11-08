@@ -47,7 +47,7 @@ AI_TELLS = [
     ("navigate (figurative)", r"\bnavigat(e|es|ing) (the|this|these|your|life|challenges|complex)"),
     ("landscape (figurative)", r"\b(digital|business|ever-changing|evolving|competitive|modern) landscape\b"),
     ("ever-evolving / fast-paced", r"\b(ever[- ]evolving|ever[- ]changing|fast[- ]paced)\b"),
-    ("in today's world", r"\bin today'?s\b"), ("multifaceted", r"\bmultifaceted\b"), ("nuanced", r"\bnuanced?\b"),
+    ("in today's world", r"\bin today'?s (world|age|era|landscape|market|digital|fast)"), ("multifaceted", r"\bmultifaceted\b"), ("nuanced", r"\bnuanced?\b"),
     ("intricate", r"\bintricat(e|ely|ies)\b"), ("meticulous", r"\bmeticulous(ly)?\b"), ("vibrant", r"\bvibrant\b"),
     ("bustling", r"\bbustling\b"), ("comprehensive", r"\bcomprehensive\b"), ("holistic", r"\bholistic\b"),
     ("synergy", r"\bsynerg(y|ies|istic)\b"), ("paradigm", r"\bparadigms?\b"), ("utilize", r"\butiliz(e|es|ed|ing|ation)\b"),
@@ -62,6 +62,9 @@ AI_TELLS = [
     ("in conclusion", r"\bin conclusion\b"), ("in summary", r"\bin summary\b"), ("at its core", r"\bat (its|the) core\b"),
     ("plays a crucial role", r"\bplays? an? (crucial|key|vital|pivotal) role\b"), ("a myriad of", r"\b(a )?myriad\b"),
     ("resonate", r"\bresonat(e|es|ed|ing)\b"), ("insights", r"\binsights\b"), ("curated", r"\bcurat(e|ed|ing)\b"),
+    ("just wanted to (reach out / flag)", r"\bjust wanted to (reach out|flag|check in|follow up|touch base|share)\b"),
+    ("I'd love to", r"\bi'?d love (to|for)\b"), ("hope you're doing well", r"\bhope (you'?re|you are|this finds you) (doing )?well\b"),
+    ("excited to share", r"\b(excited|thrilled|delighted) to (share|announce)\b"), ("don't hesitate", r"\bdon'?t hesitate to\b"),
     ("I hope this helps", r"\bi hope this (helps|finds you)\b"), ("feel free to", r"\bfeel free to\b"),
     ("great question", r"\bgreat question\b"), ("absolutely!", r"\babsolutely!"), ("certainly", r"\bcertainly\b"),
     ("indeed", r"\bindeed\b"), ("thus / hence", r"\b(thus|hence)\b"), ("whilst", r"\bwhilst\b"),
@@ -144,13 +147,15 @@ def typo_edits(w):
                 yield w[:i] + c + w[i + 1:], "near"
 
 
-def find_typos(freq):
+def find_typos(freq, lower_share=None):
     """Words one slip away from a word this person uses far more often = their real typos.
     Still check the list against the samples: a few real words sneak through."""
     pairs = []
     for w, n in freq.items():
         if len(w) < 3 or "'" in w or w in COMMON:
             continue
+        if lower_share is not None and lower_share.get(w, 1.0) < 0.6:
+            continue  # mostly written capitalized: a name or acronym (iOS, SEO, Hue), not a slip
         best = None
         for c, kind in typo_edits(w):
             m = freq.get(c, 0)
@@ -261,8 +266,9 @@ def analyze(rows):
         "5": [(k, v) for k, v in grams[5].most_common(30) if v >= 3],
     }
     s["signature_words"] = [(k, v) for k, v in f.most_common(600) if k not in COMMON and k not in STOP and len(k) > 2][:60]
-    s["typos"] = [(a, b, n) for a, b, n in find_typos(f)][:40]
-    s["typo_rate_per_1k"] = per_k(sum(n for _, _, n in find_typos(f)), W)
+    ty = find_typos(f, case_share(texts))
+    s["typos"] = ty[:40]
+    s["typo_rate_per_1k"] = per_k(sum(n for _, _, n in ty), W)
     s["ai_tells"] = {}
     for label, rx in AI_TELLS:
         n = len(re.findall(rx, joined, re.I))
@@ -272,16 +278,31 @@ def analyze(rows):
     return s
 
 
+def case_share(texts):
+    """share of each word's occurrences written all-lowercase"""
+    tot, low = Counter(), Counter()
+    for t in texts:
+        for m in re.findall(r"[A-Za-z]+", t):
+            k = m.lower()
+            tot[k] += 1
+            low[k] += m == k
+    return {k: low[k] / tot[k] for k in tot}
+
+
 def maybe_dictated(t, typo_words):
     w = words(t)
     if len(w) < 12:
         return False
     t2 = t.strip()
-    starts_cap = t2[:1].isupper()
+    sents = sentences(t2)
+    capped = sum(1 for x in sents if x[:1].isupper()) / max(len(sents), 1)
     ends_punct = t2[-1:] in ".?!"
-    no_typos = not any(x in typo_words for x in w)
-    proper_apos = not re.search(r"\b(dont|im|cant|didnt|doesnt|thats)\b", t2.lower())
-    return starts_cap and ends_punct and no_typos and proper_apos and (bool(SPOKEN_HINTS.search(t2)) or len(w) > 25)
+    few_typos = sum(1 for x in w if x in typo_words) <= 1
+    proper_apos = not re.search(r"\b(dont|im|cant|didnt|doesnt|thats|ive|isnt)\b", t2.lower())
+    caps_i = bool(re.search(r"(?<![\w'])I(?![\w])", t2)) and not re.search(r"(?<![\w'])i(?![\w'])", t2)
+    # voice input: clean contractions, capital I, sentences that start capitalized, and talk-shaped
+    return (ends_punct or capped >= 0.8) and few_typos and proper_apos and (caps_i or capped >= 0.8) and \
+        (bool(SPOKEN_HINTS.search(t2)) or len(w) > 25)
 
 
 def pick_samples(rows, k):
@@ -317,7 +338,9 @@ def report(name, stats, sources):
         if not s.get("messages"):
             continue
         p = s["per_1k_words"]
-        L += [f"## Register: {reg}", "",
+        L += [f"## Register: {reg}", ""] + ([
+              "_Probably voice input. Its capitalization and punctuation come from the transcriber, not the person: "
+              "use this register for word choice, rhythm and phrasing, not punctuation._", ""] if reg == "dictated" else []) + [
               f"- {s['messages']} messages, {s['words']} words. Median {s['median_words']} words/message (90th pct {s['p90_words']}), "
               f"median sentence {s['median_sentence_words']} words.",
               f"- Starts lowercase {s['starts_lowercase_pct']}%. No ending punctuation {s['ends_without_punct_pct']}%. "
@@ -362,6 +385,7 @@ def main():
     ap.add_argument("--name", default="", help="their name; drops prompts that talk ABOUT them in the third person")
     ap.add_argument("--samples", type=int, default=150, help="verbatim samples per register")
     ap.add_argument("--no-dictation-split", action="store_true")
+    ap.add_argument("--exclude", help="file of sample ids (one per line) that aren't really them; dropped before measuring")
     a = ap.parse_args()
 
     rows = [json.loads(l) for l in open(a.corpus, encoding="utf-8") if l.strip()]
@@ -371,12 +395,18 @@ def main():
         keep = [r for r in rows if not tp.search(r["text"][:400])]
         dropped = len(rows) - len(keep)
         rows = keep
+    excluded = 0
+    if a.exclude and os.path.isfile(a.exclude):
+        bad = {l.strip().strip("[]") for l in open(a.exclude, encoding="utf-8") if l.strip() and not l.startswith("#")}
+        excluded = sum(r["id"] in bad for r in rows)
+        rows = [r for r in rows if r["id"] not in bad]
     sources = Counter(r["src"] for r in rows)
 
     # split typed-to-ai into typed vs probably-dictated (people who use voice input talk differently)
     if not a.no_dictation_split:
-        f = Counter(w for r in rows if r["register"] == "typed-to-ai" for w in words(r["text"]))
-        typo_words = {t for t, _, _ in find_typos(f)}
+        tt = [r["text"] for r in rows if r["register"] == "typed-to-ai"]
+        f = Counter(w for t in tt for w in words(t))
+        typo_words = {t for t, _, _ in find_typos(f, case_share(tt))}
         cand = [r for r in rows if r["register"] == "typed-to-ai" and maybe_dictated(r["text"], typo_words)]
         typed = [r for r in rows if r["register"] == "typed-to-ai"]
         # only split when it is a real habit, not a handful of careful messages
@@ -384,7 +414,7 @@ def main():
             ids = {r["id"] for r in cand}
             for r in rows:
                 if r["id"] in ids:
-                    r["register"] = "spoken-dictated?"
+                    r["register"] = "dictated"
 
     by = defaultdict(list)
     for r in rows:
@@ -393,6 +423,8 @@ def main():
 
     os.makedirs(os.path.join(a.out, "samples"), exist_ok=True)
     md, never, used = report(a.name, stats, sources)
+    if excluded:
+        md += f"\n_Excluded {excluded} samples listed in {a.exclude}._\n"
     if dropped:
         md += f"\n_Dropped {dropped} prompts that talk about {a.name} in the third person (scripts, not them)._\n"
     open(os.path.join(a.out, "report.md"), "w", encoding="utf-8").write(md)
@@ -401,10 +433,11 @@ def main():
     for reg, rs in by.items():
         pick = pick_samples(rs, a.samples)
         L = [f"# Samples: {reg}", "", f"{len(pick)} of {len(rs)}, spread across length and time. Verbatim (redacted). "
-             "Some may still be pasted text or prompts written by a script; ignore anything that isn't clearly them.", ""]
+             "Some may still be pasted text or prompts written by a script: put the id (first field) of anything that "
+             "isn't clearly them in exclude.txt and re-run analyze.py with --exclude.", ""]
         for r in pick:
             t = r["text"] if len(r["text"]) <= 1500 else r["text"][:1500] + " [...]"
-            L.append(f"[{(r.get('at') or '')[:10]} · {r.get('src')} · {r.get('ctx') or '-'}]")
+            L.append(f"[{r['id']} · {(r.get('at') or '')[:10]} · {r.get('src')} · {r.get('ctx') or '-'}]")
             L.append("> " + t.replace("\n", "\n> "))
             L.append("")
         safe = re.sub(r"[^a-z0-9\-]+", "-", reg.lower()).strip("-")
@@ -423,7 +456,11 @@ def main():
             "lowercase_i_pct": s["lowercase_i_pct"], "apostrophe_dropped_pct": s["apostrophe_dropped_pct"],
             "has_exclamation_pct": s["has_exclamation_pct"], "em_dash_per_1k": p["em_dash"], "en_dash_per_1k": p["en_dash"],
             "semicolon_per_1k": p["semicolon"], "emoji_per_1k": p["emoji"], "colon_per_1k": p["colon"],
+            "typo_rate_per_1k": s["typo_rate_per_1k"], "typos": [[a_, b_] for a_, b_, _ in s["typos"][:20]],
+            "openers": [k for k, _, share in s["openers_1"] if share >= 0.5],
         }
+    vocab = Counter(w for r in rows for w in words(r["text"]))
+    prof["vocab"] = sorted(w for w in vocab if len(w) >= 3)
     json.dump(prof, open(os.path.join(a.out, "profile.json"), "w", encoding="utf-8"), indent=1, ensure_ascii=False)
     print(json.dumps({"registers": {k: v.get("messages", 0) for k, v in stats.items()}, "dropped_third_person": dropped,
                       "out": os.path.abspath(a.out)}, indent=1))

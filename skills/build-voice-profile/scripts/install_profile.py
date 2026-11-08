@@ -40,7 +40,19 @@ def main():
     if not os.path.isfile(prof_path):
         sys.exit("missing profile.json; run analyze.py first")
 
-    dest = os.path.join(os.path.expanduser(a.skills_dir), a.skill)
+    # sanity: the skill names itself correctly and lints with registers that exist
+    import re
+    skill_md = open(os.path.join(draft, "SKILL.md"), encoding="utf-8").read()
+    m = re.search(r"^name:\s*(\S+)", skill_md, re.M)
+    if not m or m.group(1) != a.skill:
+        sys.exit(f"draft SKILL.md frontmatter name is {m.group(1) if m else 'missing'!r}, expected {a.skill!r}")
+    regs = set(json.load(open(prof_path, encoding="utf-8")).get("registers", {}))
+    named = set(re.findall(r"--register\s+`?([\w\-]+)", skill_md)) | set(re.findall(r"\(`([\w\-]+)`\)", skill_md))
+    unknown = sorted(k for k in named if k not in regs and not k.startswith("<"))
+    if unknown:
+        print(f"warning: SKILL.md mentions register keys not in profile.json: {', '.join(unknown)} (have: {', '.join(sorted(regs))})")
+
+    dest = os.path.normpath(os.path.join(os.path.expanduser(a.skills_dir), a.skill))
     stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     if os.path.isdir(dest):
         backup = os.path.join(work, "backups", stamp)
@@ -81,7 +93,7 @@ and update the numbers in SKILL.md by hand.
     open(os.path.join(dest, "refresh.md"), "w", encoding="utf-8").write(refresh)
 
     # zip for claude.ai: the archive must contain the skill folder itself
-    zpath = os.path.join(work, f"{a.skill}.zip")
+    zpath = os.path.normpath(os.path.join(work, f"{a.skill}.zip"))
     with zipfile.ZipFile(zpath, "w", zipfile.ZIP_DEFLATED) as z:
         for f in sorted(os.listdir(dest)):
             if f == "refresh.md":

@@ -54,8 +54,36 @@ MACHINE_START = re.compile(
     r"^(<|Caveat:|\[Request interrupted|This session is being continued|Base directory for this skill|"
     r"# AGENTS\.md|# CLAUDE\.md|You are (a|an|the|\w+ing) |You're (a|an|the|\w+ing) |You write |Reply with |Respond with |Return (only )?(a |the )?JSON|"
     r"Load the |\{|\[\{|Summarize the following|Here is the transcript|Please analyze the following|"
-    r"Your task is|SYSTEM:|Context:|Instructions:|#{1,6} )", re.I)
+    r"Your task is|SYSTEM:|Context:|Instructions:|#{1,6} |Use the \w+ tool|Use ToolSearch|Run the (shell )?command)", re.I)
+# prompts a script wrote: "Build X. Read CONTEXT.md and directives/x.md, then carry out..."
+SCRIPTED = re.compile(r"\bRead (CONTEXT|CLAUDE|AGENTS|README)\.md\b|\bdirectives/\S+\.md\b.{0,40}\bcarry out\b", re.I)
+# typography a keyboard doesn't produce; a paragraph with it was pasted from somewhere
+PASTED_TYPO = re.compile(r"[—“”‘’•]|\*\*\w|^\s*#{1,6} ", re.M)
+# phones auto-curl quotes and dashes, so for phone-capable sources only markdown counts as pasted
+PASTED_MD = re.compile(r"•|\*\*\w|^\s*#{1,6} ", re.M)
 HEADLESS = ("sdk-cli", "sdk-py", "sdk-ts", "sdk")
+
+
+def drop_pasted_paragraphs(t, strict=True):
+    """Keep the person's words, drop what they pasted in: paragraphs with typographic quotes/dashes/bullets,
+    and the paragraph right after a line that ends with ':' ('add this in there:\\n\\n<pasted thing>')."""
+    paras = re.split(r"\n\s*\n", t)
+    keep_, quoting = [], False
+    for p in paras:
+        s = p.strip()
+        if not s:
+            continue
+        if quoting or (PASTED_TYPO if strict else PASTED_MD).search(s):
+            quoting = False
+            continue
+        lines = s.splitlines()
+        # "no not that i saw: What I'm still missing: ..." -> keep the part before the quote
+        m = re.match(r"^([a-z][^:\n]{0,80}):\s+([A-Z].{40,})$", lines[0])
+        if m and len(lines) == 1:
+            s = m.group(1)
+        keep_.append(s)
+        quoting = s.rstrip().endswith(":") and len(paras) > 1
+    return "\n\n".join(keep_)
 
 
 def looks_like_code_or_paste(t):
@@ -77,12 +105,13 @@ def clean(t):
     t = TAG_BLOCK.sub("", t or "")
     t = UNCLOSED.sub("", t)
     t = re.sub(r"```.*?```", "", t, flags=re.S)  # fenced code is never their voice
+    t = html.unescape(t).replace(" ", " ")
     t = re.sub(r"\n{3,}", "\n\n", t).strip()
     return t
 
 
 def keep(t):
-    if not t or MACHINE_START.match(t):
+    if not t or MACHINE_START.match(t) or SCRIPTED.search(t[:300]):
         return False
     if chr(13) + chr(10) in t:  # CRLF text comes from a script or a paste, not a chat box
         return False
@@ -107,6 +136,8 @@ class Out:
         if self.since and at and at[:10] < self.since:
             return
         text = clean(text)
+        if kind in ("ai_chat", "chat"):
+            text = drop_pasted_paragraphs(text, strict=src in ("claude-code", "codex"))
         if not keep(text):
             return
         text = redact(text)
@@ -427,7 +458,7 @@ def main():
     import datetime, shlex
     res = {"written": n, "by_source": dict(out.counts), "out": os.path.abspath(a.out),
            "built": datetime.date.today().isoformat(),
-           "command": "python3 collect.py " + " ".join(shlex.quote(x) for x in sys.argv[1:])}
+           "command": "python3 " + shlex.quote(os.path.abspath(__file__).replace("\\", "/")) + " " + " ".join(shlex.quote(x) for x in sys.argv[1:])}
     with open(os.path.splitext(a.out)[0] + ".manifest.json", "w", encoding="utf-8") as fh:
         json.dump(res, fh, indent=1)
     print(json.dumps(res, indent=1))

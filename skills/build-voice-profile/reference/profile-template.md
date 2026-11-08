@@ -23,10 +23,14 @@ they're building or studying, the people and places that come up, what they care
 
 ## Step 1: pick the register
 
-| They'd be... | Register | Use for |
+| They'd be... | Register (lint key) | Use for |
 |---|---|---|
-| <typing fast to someone they know> | **A. <label>** | <texts, DMs, Discord, quick notes> |
-| <...> | **B. <label>** | <...> |
+| <typing fast to someone they know> | **A. <label>** (`<key from profile.json, e.g. typed-to-ai>`) | <texts, DMs, Discord, quick notes> |
+| <...> | **B. <label>** (`<key>`) | <...> |
+
+Not measured yet: <the kinds of writing they'll want that have no data, e.g. email, essays, public posts>. For
+those, start from the closest register above, spell and punctuate normally, keep their words and rhythm, and
+stay plain. Say so if they ask how sure you are; a refresh with that kind of writing added fixes it.
 
 If it's unclear, don't ask: <default rule, e.g. "anything posted gets D, anything spoken gets B, school work gets C">.
 

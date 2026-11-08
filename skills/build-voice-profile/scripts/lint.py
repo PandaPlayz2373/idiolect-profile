@@ -58,22 +58,42 @@ def main():
             c = text.count(ch)
             if c and reg.get(key, 0) < 0.3:
                 (hard if ch != ";" else soft).append(f"{c} {name}(s): they use {reg.get(key, 0)} per 1,000 words here")
-        # 3. capitalization and apostrophes
+        # 3. capitalization, lowercase i, end punctuation, apostrophes (compared as rates, not all-or-nothing)
         letter_starts = [l[0] for l in lines if l[0].isalpha()]
         if letter_starts:
             low = 100.0 * sum(c.islower() for c in letter_starts) / len(letter_starts)
             want = reg.get("starts_lowercase_pct", 50)
-            if want >= 70 and low < 40:
-                soft.append(f"lines start capitalized; they start lowercase {want}% of the time here")
-            if want <= 15 and low > 60:
-                soft.append(f"lines start lowercase; they capitalize here ({want}% lowercase)")
+            if abs(low - want) >= 45:
+                soft.append(f"{low:.0f}% of lines start lowercase; they do {want}% here")
+        lone = re.findall(r"(?<![\w'])[iI](?![\w])", text)
+        if len(lone) >= 2:
+            li = 100.0 * sum(x == "i" for x in lone) / len(lone)
+            want = reg.get("lowercase_i_pct", 0)
+            if abs(li - want) >= 50:
+                soft.append(f"'i' is lowercase {li:.0f}% of the time in the draft; they write it lowercase {want}% here")
+        ends = [l[-1] for l in lines]
+        if len(ends) >= 2:
+            bare = 100.0 * sum(c not in ".!?)\"'" for c in ends) / len(ends)
+            want = reg.get("ends_without_punct_pct", 50)
+            if abs(bare - want) >= 50:
+                soft.append(f"{bare:.0f}% of lines end without punctuation; they do {want}% here")
         with_ap = len(re.findall(r"\b(don't|doesn't|didn't|can't|isn't|i'm|i've|that's|what's)\b", text.lower().replace("’", "'")))
         without = len(re.findall(r"\b(dont|doesnt|didnt|cant|isnt|im|ive|thats|whats)\b", text.lower()))
         drop = reg.get("apostrophe_dropped_pct", 0)
-        if drop >= 70 and with_ap and not without:
-            soft.append(f"apostrophes in contractions; they drop them {drop}% of the time here (dont, im, thats)")
-        if drop <= 10 and without:
-            soft.append(f"dropped apostrophes; they keep them here ({drop}% dropped)")
+        if with_ap + without >= 2:
+            got = 100.0 * without / (with_ap + without)
+            if abs(got - drop) >= 45:
+                soft.append(f"apostrophes dropped in {got:.0f}% of contractions; they drop {drop}% here (dont, im, thats)")
+        # 3b. their real typos, in registers where they make them
+        rate = reg.get("typo_rate_per_1k", 0)
+        mine = {a for a, _ in reg.get("typos", [])}
+        if rate >= 4 and len(words) >= 40 and not any(w in mine for w in words):
+            ex = ", ".join(a for a, _ in reg.get("typos", [])[:6])
+            soft.append(f"no typos; they make about {rate:.0f} per 1,000 words here. Use one or two of their real ones ({ex}), never in names")
+        # 3c. how they open
+        opens = reg.get("openers") or []
+        if opens and words and reg.get("messages", 0) >= 100 and words[0] not in opens:
+            soft.append(f"opens with '{words[0]}', which isn't one of their usual first words here ({', '.join(opens[:12])})")
         # 4. exclamation and emoji
         ex = text.count("!")
         if ex and reg.get("has_exclamation_pct", 0) < 3:
@@ -85,6 +105,17 @@ def main():
         p90 = reg.get("p90_words") or 0
         if p90 and len(words) > 2.5 * p90 and len(words) > 60:
             soft.append(f"{len(words)} words; their long messages here top out around {p90}")
+
+    # 5b. words they have never used anywhere (only meaningful with a decent corpus)
+    vocab = set(prof.get("vocab") or [])
+    if len(vocab) >= 1500:
+        new = []
+        for w in words:
+            base = re.sub(r"(ies|es|s|ed|ing|ly)$", "", w)
+            if len(w) >= 5 and w not in vocab and not ({base, base + "e", base + "y"} & vocab) and w not in new:
+                new.append(w)
+        if new:
+            soft.append("words they've never used: " + ", ".join(new[:12]) + " (fine for names/topics; otherwise use their words)")
 
     # 6. structures that read as generated no matter who you are
     for rx, why in ((r"\b(it'?s|it is|this is|that'?s|that is) not (just|only|about) [^.?!]{1,40}[,;—] ?(it'?s|it is|but)\b", "'it's not X, it's Y' construction"),
