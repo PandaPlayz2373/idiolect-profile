@@ -1,0 +1,10 @@
+{
+  "name": "idiolect",
+  "version": "1.0.0",
+  "description": "Builds your idiolect profile: a personal skill, measured from your own messages, documents and transcripts, that makes Claude write exactly the way you type, talk and write in each context. No AI tells.",
+  "author": { "name": "Idiolect contributors" },
+  "homepage": "https://github.com/PandaPlayz2373/idiolect-profile",
+  "repository": "https://github.com/PandaPlayz2373/idiolect-profile",
+  "license": "MIT",
+  "keywords": ["voice", "writing", "style", "idiolect", "ghostwriting", "personal"]
+}

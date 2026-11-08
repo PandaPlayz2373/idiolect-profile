@@ -1,0 +1,11 @@
+{
+  "name": "idiolect-profile",
+  "owner": { "name": "Idiolect contributors" },
+  "plugins": [
+    {
+      "name": "idiolect",
+      "source": "./",
+      "description": "Build a personal voice profile from your own words so Claude writes as you: your phrases, your punctuation, your typos, per context."
+    }
+  ]
+}
