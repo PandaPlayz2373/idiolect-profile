@@ -1,6 +1,9 @@
 {
   "name": "idiolect-profile",
-  "owner": { "name": "Idiolect contributors" },
+  "description": "Idiolect: build a personal voice profile from your own words so Claude writes like you.",
+  "owner": {
+    "name": "Idiolect contributors"
+  },
   "plugins": [
     {
       "name": "idiolect",
